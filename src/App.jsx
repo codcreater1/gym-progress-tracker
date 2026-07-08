@@ -38,13 +38,28 @@ const EXERCISE_LIST = {
   Abs: { icon: "🧱", exercises: ["Leg Raise", "Plank"], color: "#2dd4bf" }
 };
 
+// Epley formula: e1RM = weight * (1 + reps / 30)
+const calcE1RM = (weight, reps) => Math.round(weight * (1 + reps / 30) * 10) / 10;
+
+// Migrate legacy lift entries (plain numbers) to { weight, reps, e1rm } objects
+const migrateLifts = (raw) => {
+  const out = {};
+  Object.entries(raw || {}).forEach(([ex, entries]) => {
+    out[ex] = entries.map(e =>
+      typeof e === 'number' ? { weight: e, reps: 1, e1rm: e } : e
+    );
+  });
+  return out;
+};
+
 const App = () => {
   const [activeTab, setActiveTab] = useState('workout');
   const [status, setStatus] = useState('');
+  const [selectedExercise, setSelectedExercise] = useState('');
   
   // --- PERSISTENT STATES ---
   const [weights, setWeights] = useState(() => JSON.parse(localStorage.getItem('proWeight')) || [80]);
-  const [lifts, setLifts] = useState(() => JSON.parse(localStorage.getItem('proLifts')) || {});
+  const [lifts, setLifts] = useState(() => migrateLifts(JSON.parse(localStorage.getItem('proLifts')) || {}));
   const [meals, setMeals] = useState(() => JSON.parse(localStorage.getItem('proMeals')) || []);
   const [history, setHistory] = useState(() => JSON.parse(localStorage.getItem('proHistory')) || {});
 
@@ -67,11 +82,14 @@ const App = () => {
     showToast("⚖️ Weight logged!");
   };
 
-  const addLift = (ex, val, muscle) => {
-    if (!val) return;
-    const numVal = parseFloat(val);
+  const addLift = (ex, weightVal, repsVal, muscle) => {
+    if (!weightVal) return;
+    const numWeight = parseFloat(weightVal);
+    const numReps = parseFloat(repsVal) || 1;
+    const entry = { weight: numWeight, reps: numReps, e1rm: calcE1RM(numWeight, numReps) };
     const prev = lifts[ex] || [];
-    setLifts({ ...lifts, [ex]: [...prev, numVal] });
+    setLifts({ ...lifts, [ex]: [...prev, entry] });
+    if (!selectedExercise) setSelectedExercise(ex);
     
     // Auto-mark calendar
     const today = new Date().toISOString().split('T')[0];
@@ -137,7 +155,8 @@ const App = () => {
                     <span style={{ fontSize: '0.85rem', color: '#aaa' }}>{ex}</span>
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <input id={`in-${ex}`} type="number" placeholder="kg" style={miniInput} />
-                      <button onClick={() => addLift(ex, document.getElementById(`in-${ex}`).value, muscle)} style={addBtnStyle(data.color)}>+</button>
+                      <input id={`reps-${ex}`} type="number" placeholder="reps" style={miniInput} />
+                      <button onClick={() => addLift(ex, document.getElementById(`in-${ex}`).value, document.getElementById(`reps-${ex}`).value, muscle)} style={addBtnStyle(data.color)}>+</button>
                     </div>
                   </div>
                 ))}
@@ -200,11 +219,45 @@ const App = () => {
 
       {/* --- ANALYSIS TAB --- */}
       {activeTab === 'analysis' && (
-        <div style={fullCard}>
-          <h3 style={{marginTop: 0}}>Strength Performance (Max Lifts)</h3>
-          <div style={{ height: '350px' }}>
-            <Bar data={{ labels: Object.keys(lifts), datasets: [{ label: 'Max Weight (kg)', data: Object.values(lifts).map(l => Math.max(...l, 0)), backgroundColor: '#4ade80', borderRadius: 8 }] }} options={{ maintainAspectRatio: false }} />
+        <div style={{ display: 'grid', gap: '20px' }}>
+          <div style={fullCard}>
+            <h3 style={{marginTop: 0}}>Strength Performance (Max Lifts)</h3>
+            <div style={{ height: '350px' }}>
+              <Bar data={{ labels: Object.keys(lifts), datasets: [{ label: 'Max Weight (kg)', data: Object.values(lifts).map(l => Math.max(...l.map(e => e.weight), 0)), backgroundColor: '#4ade80', borderRadius: 8 }] }} options={{ maintainAspectRatio: false }} />
+            </div>
           </div>
+
+          <div style={fullCard}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+              <h3 style={{ margin: 0 }}>Estimated 1RM Trend</h3>
+              {Object.keys(lifts).length > 0 && (
+                <select value={selectedExercise} onChange={e => setSelectedExercise(e.target.value)} style={{ ...fullInput, flex: 'none', width: 'auto' }}>
+                  {Object.keys(lifts).map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                </select>
+              )}
+            </div>
+            {selectedExercise && lifts[selectedExercise]?.length > 0 ? (
+              <div style={{ height: '300px' }}>
+                <Line
+                  data={{
+                    labels: lifts[selectedExercise].map((_, i) => `#${i + 1}`),
+                    datasets: [{
+                      label: `${selectedExercise} — Est. 1RM (kg)`,
+                      data: lifts[selectedExercise].map(e => e.e1rm),
+                      borderColor: '#fbbf24',
+                      tension: 0.4,
+                      fill: true,
+                      backgroundColor: 'rgba(251, 191, 36, 0.1)'
+                    }]
+                  }}
+                  options={{ maintainAspectRatio: false }}
+                />
+              </div>
+            ) : (
+              <p style={{ color: '#555', fontSize: '0.85rem' }}>Log a lift with weight + reps on the Workout tab to see its 1RM trend here.</p>
+            )}
+          </div>
+
           <button onClick={() => { if(window.confirm("Reset all data?")) { localStorage.clear(); window.location.reload(); } }} style={dangerBtn}>PURGE DATABASE</button>
         </div>
       )}
@@ -226,7 +279,7 @@ const calendarGrid = { display: 'flex', gap: '10px', justifyContent: 'center', o
 const mainGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' };
 const cardStyle = { background: '#111', padding: '25px', borderRadius: '24px', border: '1px solid #222' };
 const exerciseRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#181818', padding: '12px 18px', borderRadius: '16px', marginBottom: '10px', border: '1px solid #252525' };
-const miniInput = { width: '45px', padding: '8px', background: '#000', border: '1px solid #333', color: '#fff', borderRadius: '8px', textAlign: 'center' };
+const miniInput = { width: '42px', padding: '8px 4px', background: '#000', border: '1px solid #333', color: '#fff', borderRadius: '8px', textAlign: 'center', fontSize: '0.8rem' };
 const addBtnStyle = (color) => ({ background: color, border: 'none', width: '32px', height: '32px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', color: '#000' });
 
 const fullCard = { background: '#111', padding: '30px', borderRadius: '24px', border: '1px solid #222' };
