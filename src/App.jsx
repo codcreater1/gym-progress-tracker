@@ -41,6 +41,13 @@ const EXERCISE_LIST = {
 // Epley formula: e1RM = weight * (1 + reps / 30)
 const calcE1RM = (weight, reps) => Math.round(weight * (1 + reps / 30) * 10) / 10;
 
+// Trend chart metrics
+const TREND_METRICS = {
+  e1rm: { label: 'Est. 1RM (kg)', color: '#fbbf24', bg: 'rgba(251, 191, 36, 0.1)', getValue: e => e.e1rm },
+  volume: { label: 'Volume (kg × reps)', color: '#60a5fa', bg: 'rgba(96, 165, 250, 0.1)', getValue: e => Math.round(e.weight * e.reps * 10) / 10 },
+  weight: { label: 'Weight Lifted (kg)', color: '#f472b6', bg: 'rgba(244, 114, 182, 0.1)', getValue: e => e.weight },
+};
+
 // Migrate legacy lift entries (plain numbers) to { weight, reps, e1rm } objects
 const migrateLifts = (raw) => {
   const out = {};
@@ -56,6 +63,7 @@ const App = () => {
   const [activeTab, setActiveTab] = useState('workout');
   const [status, setStatus] = useState('');
   const [selectedExercise, setSelectedExercise] = useState('');
+  const [selectedMetric, setSelectedMetric] = useState('e1rm');
   
   // --- PERSISTENT STATES ---
   const [weights, setWeights] = useState(() => JSON.parse(localStorage.getItem('proWeight')) || [80]);
@@ -229,12 +237,17 @@ const App = () => {
 
           <div style={fullCard}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
-              <h3 style={{ margin: 0 }}>Estimated 1RM Trend</h3>
-              {Object.keys(lifts).length > 0 && (
-                <select value={selectedExercise} onChange={e => setSelectedExercise(e.target.value)} style={{ ...fullInput, flex: 'none', width: 'auto' }}>
-                  {Object.keys(lifts).map(ex => <option key={ex} value={ex}>{ex}</option>)}
+              <h3 style={{ margin: 0 }}>Performance Trend</h3>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <select value={selectedMetric} onChange={e => setSelectedMetric(e.target.value)} style={{ ...fullInput, flex: 'none', width: 'auto' }}>
+                  {Object.entries(TREND_METRICS).map(([key, m]) => <option key={key} value={key}>{m.label}</option>)}
                 </select>
-              )}
+                {Object.keys(lifts).length > 0 && (
+                  <select value={selectedExercise} onChange={e => setSelectedExercise(e.target.value)} style={{ ...fullInput, flex: 'none', width: 'auto' }}>
+                    {Object.keys(lifts).map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                  </select>
+                )}
+              </div>
             </div>
             {selectedExercise && lifts[selectedExercise]?.length > 0 ? (
               <div style={{ height: '300px' }}>
@@ -242,12 +255,12 @@ const App = () => {
                   data={{
                     labels: lifts[selectedExercise].map((_, i) => `#${i + 1}`),
                     datasets: [{
-                      label: `${selectedExercise} — Est. 1RM (kg)`,
-                      data: lifts[selectedExercise].map(e => e.e1rm),
-                      borderColor: '#fbbf24',
+                      label: `${selectedExercise} — ${TREND_METRICS[selectedMetric].label}`,
+                      data: lifts[selectedExercise].map(TREND_METRICS[selectedMetric].getValue),
+                      borderColor: TREND_METRICS[selectedMetric].color,
                       tension: 0.4,
                       fill: true,
-                      backgroundColor: 'rgba(251, 191, 36, 0.1)'
+                      backgroundColor: TREND_METRICS[selectedMetric].bg
                     }]
                   }}
                   options={{ maintainAspectRatio: false }}
